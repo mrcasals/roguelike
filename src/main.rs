@@ -3,6 +3,8 @@ use std::cmp;
 use tcod::colors::*;
 use tcod::console::*;
 
+use rand::Rng;
+
 // actual size of the window
 const SCREEN_WIDTH: i32 = 80;
 const SCREEN_HEIGHT: i32 = 50;
@@ -19,6 +21,10 @@ const COLOR_DARK_GROUND: Color = Color {
     g: 50,
     b: 150,
 };
+
+const ROOM_MAX_SIZE: i32 = 10;
+const ROOM_MIN_SIZE: i32 = 6;
+const MAX_ROOMS: i32 = 30;
 
 type Map = Vec<Vec<Tile>>;
 
@@ -62,6 +68,19 @@ impl Rect {
             x2: x + w,
             y2: y + h,
         }
+    }
+
+    pub fn center(&self) -> (i32, i32) {
+        let center_x = (self.x1 + self.x2) / 2;
+        let center_y = (self.y1 + self.y2) / 2;
+        (center_x, center_y)
+    }
+
+    pub fn intersects_with(&self, other: &Rect) -> bool {
+        (self.x1 <= other.x2)
+            && (self.x2 >= other.x1)
+            && (self.y1 <= other.y2)
+            && (self.y2 >= other.y1)
     }
 }
 
@@ -118,18 +137,45 @@ fn create_v_tunnel(y1: i32, y2: i32, x: i32, map: &mut Map) {
     }
 }
 
-fn make_map() -> Map {
+fn make_map() -> (Map, (i32, i32)) {
     // fill map with "blocked" tiles
     let mut map = vec![vec![Tile::wall(); MAP_HEIGHT as usize]; MAP_WIDTH as usize];
 
-    // create two rooms
-    let room1 = Rect::new(20, 15, 10, 15);
-    let room2 = Rect::new(50, 15, 10, 15);
-    create_room(room1, &mut map);
-    create_room(room2, &mut map);
-    create_h_tunnel(25, 55, 23, &mut map);
+    let mut rooms = vec![];
 
-    map
+    let mut starting_position = (0, 0);
+
+    for _ in 0..MAX_ROOMS {
+        let w = rand::thread_rng().gen_range(ROOM_MIN_SIZE, ROOM_MAX_SIZE + 1);
+        let h = rand::thread_rng().gen_range(ROOM_MIN_SIZE, ROOM_MAX_SIZE + 1);
+        let x = rand::thread_rng().gen_range(0, MAP_WIDTH - w);
+        let y = rand::thread_rng().gen_range(0, MAP_HEIGHT - h);
+
+        let new_room = Rect::new(x, y, w, h);
+        let failed = rooms
+            .iter()
+            .any(|other_room| new_room.intersects_with(other_room));
+
+        if !failed {
+            create_room(new_room, &mut map);
+            let (new_x, new_y) = new_room.center();
+            if rooms.is_empty() {
+                starting_position = (new_x, new_y)
+            } else {
+                let (prev_x, prev_y) = rooms[rooms.len() - 1].center();
+                if rand::random() {
+                    create_h_tunnel(prev_x, new_x, prev_y, &mut map);
+                    create_v_tunnel(prev_y, new_y, new_x, &mut map);
+                } else {
+                    create_v_tunnel(prev_y, new_y, prev_x, &mut map);
+                    create_h_tunnel(prev_x, new_x, new_y, &mut map);
+                }
+            }
+            rooms.push(new_room);
+        }
+    }
+
+    (map, starting_position)
 }
 
 fn render_all(root: &mut Root, con: &mut Offscreen, objects: &[Object], map: &Map) {
@@ -193,18 +239,18 @@ fn main() {
     tcod::system::set_fps(LIMIT_FPS);
     let mut con = Offscreen::new(MAP_WIDTH, MAP_HEIGHT);
 
+    // generate map (at this point it's not drawn to the screen)
+    let (map, (player_x, player_y)) = make_map();
+
     // create object representing the player
     // place the player inside the first room
-    let player = Object::new(25, 23, '@', WHITE);
+    let player = Object::new(player_x, player_y, '@', WHITE);
 
     // create an NPC
     let npc = Object::new(SCREEN_WIDTH / 2 - 5, SCREEN_HEIGHT / 2, '@', YELLOW);
 
     // the list of objects with those two
     let mut objects = [player, npc];
-
-    // generate map (at this point it's not drawn to the screen)
-    let map = make_map();
 
     while !root.window_closed() {
         // clear the screen of the previous frame
