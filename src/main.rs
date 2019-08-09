@@ -115,23 +115,21 @@ struct Object {
     y: i32,
     char: char,
     color: Color,
+    name: String,
+    blocks: bool,
+    alive: bool,
 }
 
 impl Object {
-    pub fn new(x: i32, y: i32, char: char, color: Color) -> Self {
+    pub fn new(x: i32, y: i32, char: char, name: &str, color: Color, blocks: bool) -> Self {
         Object {
             x: x,
             y: y,
             char: char,
             color: color,
-        }
-    }
-
-    /// move by the given amount, if the destination is not blocked
-    pub fn move_by(&mut self, dx: i32, dy: i32, map: &Map) {
-        if !map[(self.x + dx) as usize][(self.y + dy) as usize].blocked {
-            self.x += dx;
-            self.y += dy;
+            name: name.into(),
+            blocks: blocks,
+            alive: false,
         }
     }
 
@@ -149,6 +147,24 @@ impl Object {
         self.x = x;
         self.y = y;
     }
+}
+
+/// move by the given amount, if the destination is not blocked
+fn move_by(id: usize, dx: i32, dy: i32, map: &Map, objects: &mut [Object]) {
+    let (x, y) = objects[id].pos();
+    if !is_blocked(x + dx, y + dy, map, objects) {
+        objects[id].set_pos(x + dx, y + dy);
+    }
+}
+
+fn is_blocked(x: i32, y: i32, map: &Map, objects: &[Object]) -> bool {
+    if map[x as usize][y as usize].blocked {
+        return true;
+    }
+
+    objects
+        .iter()
+        .any(|object| object.blocks && object.pos() == (x, y))
 }
 
 fn create_room(room: Rect, map: &mut Map) {
@@ -200,7 +216,7 @@ fn make_map(objects: &mut Vec<Object>) -> Map {
 
             // "paint" it to the map's tiles
             create_room(new_room, &mut map);
-            place_objects(new_room, objects);
+            place_objects(new_room, &map, objects);
 
             // center coordinates of the new room, will be useful later
             let (new_x, new_y) = new_room.center();
@@ -286,7 +302,7 @@ fn render_all(
     blit(con, (0, 0), (MAP_WIDTH, MAP_HEIGHT), root, (0, 0), 1.0, 1.0);
 }
 
-fn handle_keys(root: &mut Root, player: &mut Object, map: &Map) -> bool {
+fn handle_keys(root: &mut Root, map: &Map, objects: &mut [Object]) -> bool {
     use tcod::input::Key;
     use tcod::input::KeyCode::*;
 
@@ -304,10 +320,10 @@ fn handle_keys(root: &mut Root, player: &mut Object, map: &Map) -> bool {
         Key { code: Escape, .. } => return true, // exit game
 
         // movement keys
-        Key { code: Up, .. } => player.move_by(0, -1, map),
-        Key { code: Down, .. } => player.move_by(0, 1, map),
-        Key { code: Left, .. } => player.move_by(-1, 0, map),
-        Key { code: Right, .. } => player.move_by(1, 0, map),
+        Key { code: Up, .. } => move_by(PLAYER, 0, -1, map, objects),
+        Key { code: Down, .. } => move_by(PLAYER, 0, 1, map, objects),
+        Key { code: Left, .. } => move_by(PLAYER, -1, 0, map, objects),
+        Key { code: Right, .. } => move_by(PLAYER, 1, 0, map, objects),
 
         _ => {}
     }
@@ -315,20 +331,23 @@ fn handle_keys(root: &mut Root, player: &mut Object, map: &Map) -> bool {
     false
 }
 
-fn place_objects(room: Rect, objects: &mut Vec<Object>) {
+fn place_objects(room: Rect, map: &Map, objects: &mut Vec<Object>) {
     let num_monsters = rand::thread_rng().gen_range(0, MAX_ROOM_MONSTERS + 1);
 
     for _i in 0..num_monsters {
         let x = rand::thread_rng().gen_range(room.x1 + 1, room.x2);
         let y = rand::thread_rng().gen_range(room.y1 + 1, room.y2);
 
-        let mut monster = if rand::random::<f32>() < 0.8 {
-            Object::new(x, y, 'o', colors::DESATURATED_GREEN)
-        } else {
-            Object::new(x, y, 'T', colors::DARKER_GREEN)
-        };
+        if !is_blocked(x, y, map, objects) {
+            let mut monster = if rand::random::<f32>() < 0.8 {
+                Object::new(x, y, 'o', "orc", colors::DESATURATED_GREEN, true)
+            } else {
+                Object::new(x, y, 'T', "troll", colors::DARKER_GREEN, true)
+            };
+            monster.alive = true;
 
-        objects.push(monster);
+            objects.push(monster);
+        }
     }
 }
 
@@ -344,7 +363,7 @@ fn main() {
 
     // create object representing the player
     // place the player inside the first room
-    let player = Object::new(0, 0, '@', colors::WHITE);
+    let player = Object::new(0, 0, '@', "player", colors::WHITE, true);
 
     // the list of objects with those two
     let mut objects = vec![player];
@@ -388,7 +407,7 @@ fn main() {
         // handle keys and exit game if needed
         let player = &mut objects[PLAYER];
         previous_player_position = (player.x, player.y);
-        let exit = handle_keys(&mut root, player, &map);
+        let exit = handle_keys(&mut root, &map, &mut objects);
         if exit {
             break;
         }
