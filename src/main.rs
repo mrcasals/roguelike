@@ -164,6 +164,22 @@ fn move_by(id: usize, dx: i32, dy: i32, map: &Map, objects: &mut [Object]) {
     }
 }
 
+fn player_move_or_attack(dx: i32, dy: i32, map: &Map, objects: &mut [Object]) {
+    let x = objects[PLAYER].x + dx;
+    let y = objects[PLAYER].y + dy;
+
+    let target_id = objects.iter().position(|object| object.pos() == (x, y));
+
+    match target_id {
+        Some(target_id) => {
+            println!("The {} laughs at your face", objects[target_id].name);
+        }
+        None => {
+            move_by(PLAYER, dx, dy, map, objects);
+        }
+    }
+}
+
 fn is_blocked(x: i32, y: i32, map: &Map, objects: &[Object]) -> bool {
     if map[x as usize][y as usize].blocked {
         return true;
@@ -335,19 +351,19 @@ fn handle_keys(root: &mut Root, map: &Map, objects: &mut [Object]) -> PlayerActi
         (Key { code: Escape, .. }, _) => Exit, // exit game
 
         (Key { code: Up, .. }, true) => {
-            move_by(PLAYER, 0, -1, map, objects);
+            player_move_or_attack(0, -1, map, objects);
             TookTurn
         }
         (Key { code: Down, .. }, true) => {
-            move_by(PLAYER, 0, 1, map, objects);
+            player_move_or_attack(0, 1, map, objects);
             TookTurn
         }
         (Key { code: Left, .. }, true) => {
-            move_by(PLAYER, -1, 0, map, objects);
+            player_move_or_attack(-1, 0, map, objects);
             TookTurn
         }
         (Key { code: Right, .. }, true) => {
-            move_by(PLAYER, 1, 0, map, objects);
+            player_move_or_attack(1, 0, map, objects);
             TookTurn
         }
 
@@ -387,7 +403,8 @@ fn main() {
 
     // create object representing the player
     // place the player inside the first room
-    let player = Object::new(0, 0, '@', "player", colors::WHITE, true);
+    let mut player = Object::new(0, 0, '@', "player", colors::WHITE, true);
+    player.alive = true;
 
     // the list of objects with those two
     let mut objects = vec![player];
